@@ -18,19 +18,10 @@ class MemcacheCache extends AbstractCache
         'serialize' => true,
     ];
 
-    /**
-     * 架构函数
-     * @access public
-     * @param  array $options 缓存参数
-     */
-    public function __construct($options = [])
+    public function init()
     {
         if (!extension_loaded('memcached')) {
             throw new \BadFunctionCallException('not support: memcached');
-        }
-
-        if (!empty($options)) {
-            $this->options = array_merge($this->options, $options);
         }
 
         $this->handler = new \Memcached;

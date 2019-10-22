@@ -18,17 +18,12 @@ class FileCache extends AbstractCache
 
     protected $expire;
 
-    public function __construct()
-    {
-        $this->init();
-    }
-
     /**
      * 初始化检查
      * @access private
      * @return boolean
      */
-    private function init()
+    public function init()
     {
         // 创建项目缓存目录
         try {

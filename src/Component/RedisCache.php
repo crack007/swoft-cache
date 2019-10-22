@@ -18,7 +18,7 @@ class RedisCache extends AbstractCache
         'serialize' => true,
     ];
 
-    public function __construct()
+    public function init()
     {
         if (!empty($options)) {
             $this->options = array_merge($this->options, $options);
