@@ -4,91 +4,204 @@
 namespace Crack9527\Cache\Component;
 
 
-use Crack9527\Cache\Contract\CacheInterface;
-
-class MemcacheCache implements CacheInterface
+class MemcacheCache extends AbstractCache
 {
-    private $host;
-    private $port;
-    private $timeout;
-    private $password;
+    protected $options = [
+        'host' => '127.0.0.1',
+        'port' => 11211,
+        'expire' => 0,
+        'timeout' => 0, // 超时时间（单位：毫秒）
+        'prefix' => '',
+        'username' => '', //账号
+        'password' => '', //密码
+        'option' => [],
+        'serialize' => true,
+    ];
 
     /**
+     * 架构函数
+     * @access public
+     * @param  array $options 缓存参数
+     */
+    public function __construct($options = [])
+    {
+        if (!extension_loaded('memcached')) {
+            throw new \BadFunctionCallException('not support: memcached');
+        }
+
+        if (!empty($options)) {
+            $this->options = array_merge($this->options, $options);
+        }
+
+        $this->handler = new \Memcached;
+
+        if (!empty($this->options['option'])) {
+            $this->handler->setOptions($this->options['option']);
+        }
+
+        // 设置连接超时时间（单位：毫秒）
+        if ($this->options['timeout'] > 0) {
+            $this->handler->setOption(\Memcached::OPT_CONNECT_TIMEOUT, $this->options['timeout']);
+        }
+
+        // 支持集群
+        $hosts = explode(',', $this->options['host']);
+        $ports = explode(',', $this->options['port']);
+        if (empty($ports[0])) {
+            $ports[0] = 11211;
+        }
+
+        // 建立连接
+        $servers = [];
+        foreach ((array)$hosts as $i => $host) {
+            $servers[] = [$host, (isset($ports[$i]) ? $ports[$i] : $ports[0]), 1];
+        }
+
+        $this->handler->addServers($servers);
+
+        if ('' != $this->options['username']) {
+            $this->handler->setOption(\Memcached::OPT_BINARY_PROTOCOL, true);
+            $this->handler->setSaslAuthData($this->options['username'], $this->options['password']);
+        }
+    }
+
+    /**
+     * 判断缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @return bool
+     */
+    public function has($name)
+    {
+        $key = $this->getCacheKey($name);
+
+        return $this->handler->get($key) ? true : false;
+    }
+
+    /**
+     * 读取缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  mixed $default 默认值
      * @return mixed
      */
-    public function getHost()
+    public function get($name, $default = false)
     {
-        return $this->host;
+        $this->readTimes++;
+
+        $result = $this->handler->get($this->getCacheKey($name));
+
+        return false !== $result ? $this->unserialize($result) : $default;
     }
 
     /**
-     * @param mixed $host
+     * 写入缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  mixed $value 存储数据
+     * @param  integer|\DateTime $expire 有效时间（秒）
+     * @return bool
      */
-    public function setHost($host): void
+    public function set($name, $value, $expire = null)
     {
-        $this->host = $host;
+        $this->writeTimes++;
+
+        if (is_null($expire)) {
+            $expire = $this->options['expire'];
+        }
+
+        if ($this->tag && !$this->has($name)) {
+            $first = true;
+        }
+
+        $key = $this->getCacheKey($name);
+        $expire = $this->getExpireTime($expire);
+        $value = $this->serialize($value);
+
+        if ($this->handler->set($key, $value, $expire)) {
+            isset($first) && $this->setTagItem($key);
+            return true;
+        }
+
+        return false;
     }
 
     /**
-     * @return mixed
+     * 自增缓存（针对数值缓存）
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  int $step 步长
+     * @return false|int
      */
-    public function getPort()
+    public function inc($name, $step = 1)
     {
-        return $this->port;
+        $this->writeTimes++;
+
+        $key = $this->getCacheKey($name);
+
+        if ($this->handler->get($key)) {
+            return $this->handler->increment($key, $step);
+        }
+
+        return $this->handler->set($key, $step);
     }
 
     /**
-     * @param mixed $port
+     * 自减缓存（针对数值缓存）
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  int $step 步长
+     * @return false|int
      */
-    public function setPort($port): void
+    public function dec($name, $step = 1)
     {
-        $this->port = $port;
+        $this->writeTimes++;
+
+        $key = $this->getCacheKey($name);
+        $value = $this->handler->get($key) - $step;
+        $res = $this->handler->set($key, $value);
+
+        return !$res ? false : $value;
     }
 
     /**
-     * @return mixed
+     * 删除缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  bool|false $ttl
+     * @return bool
      */
-    public function getTimeout()
+    public function rm($name, $ttl = false)
     {
-        return $this->timeout;
+        $this->writeTimes++;
+
+        $key = $this->getCacheKey($name);
+
+        return false === $ttl ?
+            $this->handler->delete($key) :
+            $this->handler->delete($key, $ttl);
     }
 
     /**
-     * @param mixed $timeout
+     * 清除缓存
+     * @access public
+     * @param  string $tag 标签名
+     * @return bool
      */
-    public function setTimeout($timeout): void
+    public function clear($tag = null)
     {
-        $this->timeout = $timeout;
-    }
+        if ($tag) {
+            // 指定标签清除
+            $keys = $this->getTagItem($tag);
 
-    /**
-     * @return mixed
-     */
-    public function getPassword()
-    {
-        return $this->password;
-    }
+            $this->handler->deleteMulti($keys);
+            $this->rm('tag_' . md5($tag));
 
-    /**
-     * @param mixed $password
-     */
-    public function setPassword($password): void
-    {
-        $this->password = $password;
-    }
+            return true;
+        }
 
-    public function get(string $key)
-    {
-        // TODO: Implement get() method.
-    }
+        $this->writeTimes++;
 
-    public function set(string $key, $val, int $expire)
-    {
-        // TODO: Implement set() method.
-    }
-
-    public function rm(string $key)
-    {
-        // TODO: Implement rm() method.
+        return $this->handler->flush();
     }
 }

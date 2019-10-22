@@ -4,109 +4,194 @@
 namespace Crack9527\Cache\Component;
 
 
-use Crack9527\Cache\Contract\CacheInterface;
-
-class RedisCache implements CacheInterface
+class RedisCache extends AbstractCache
 {
-    private $host;
-    private $port;
-    private $db;
-    private $timeout;
-    private $password;
+    protected $options = [
+        'host' => '127.0.0.1',
+        'port' => 6379,
+        'password' => '',
+        'select' => 0,
+        'timeout' => 0,
+        'expire' => 0,
+        'persistent' => false,
+        'prefix' => '',
+        'serialize' => true,
+    ];
+
+    public function __construct()
+    {
+        if (!empty($options)) {
+            $this->options = array_merge($this->options, $options);
+        }
+
+        if (extension_loaded('redis')) {
+            $this->handler = new \Redis;
+
+            if ($this->options['persistent']) {
+                $this->handler->pconnect($this->options['host'], $this->options['port'], $this->options['timeout'], 'persistent_id_' . $this->options['select']);
+            } else {
+                $this->handler->connect($this->options['host'], $this->options['port'], $this->options['timeout']);
+            }
+
+            if ('' != $this->options['password']) {
+                $this->handler->auth($this->options['password']);
+            }
+
+            if (0 != $this->options['select']) {
+                $this->handler->select($this->options['select']);
+            }
+        } elseif (class_exists('\Predis\Client')) {
+            $params = [];
+            foreach ($this->options as $key => $val) {
+                if (in_array($key, ['aggregate', 'cluster', 'connections', 'exceptions', 'prefix', 'profile', 'replication', 'parameters'])) {
+                    $params[$key] = $val;
+                    unset($this->options[$key]);
+                }
+            }
+
+            $this->handler = new \Predis\Client($this->options, $params);
+
+            $this->options['prefix'] = '';
+        } else {
+            throw new \BadFunctionCallException('not support: redis');
+        }
+    }
 
     /**
+     * 判断缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @return bool
+     */
+    public function has($name)
+    {
+        return $this->handler->exists($this->getCacheKey($name));
+    }
+
+    /**
+     * 读取缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  mixed $default 默认值
      * @return mixed
      */
-    public function getHost()
+    public function get($name, $default = false)
     {
-        return $this->host;
+        $this->readTimes++;
+
+        $value = $this->handler->get($this->getCacheKey($name));
+
+        if (is_null($value) || false === $value) {
+            return $default;
+        }
+
+        return $this->unserialize($value);
     }
 
     /**
-     * @param mixed $host
+     * 写入缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  mixed $value 存储数据
+     * @param  integer|\DateTime $expire 有效时间（秒）
+     * @return boolean
      */
-    public function setHost($host): void
+    public function set($name, $value, $expire = null)
     {
-        $this->host = $host;
+        $this->writeTimes++;
+
+        if (is_null($expire)) {
+            $expire = $this->options['expire'];
+        }
+
+        if ($this->tag && !$this->has($name)) {
+            $first = true;
+        }
+
+        $key = $this->getCacheKey($name);
+        $expire = $this->getExpireTime($expire);
+
+        $value = $this->serialize($value);
+
+        if ($expire) {
+            $result = $this->handler->setex($key, $expire, $value);
+        } else {
+            $result = $this->handler->set($key, $value);
+        }
+
+        isset($first) && $this->setTagItem($key);
+
+        return $result;
     }
 
     /**
-     * @return mixed
+     * 自增缓存（针对数值缓存）
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  int $step 步长
+     * @return false|int
      */
-    public function getPort()
+    public function inc($name, $step = 1)
     {
-        return $this->port;
+        $this->writeTimes++;
+
+        $key = $this->getCacheKey($name);
+
+        return $this->handler->incrby($key, $step);
     }
 
     /**
-     * @param mixed $port
+     * 自减缓存（针对数值缓存）
+     * @access public
+     * @param  string $name 缓存变量名
+     * @param  int $step 步长
+     * @return false|int
      */
-    public function setPort($port): void
+    public function dec($name, $step = 1)
     {
-        $this->port = $port;
+        $this->writeTimes++;
+
+        $key = $this->getCacheKey($name);
+
+        return $this->handler->decrby($key, $step);
     }
 
     /**
-     * @return mixed
+     * 删除缓存
+     * @access public
+     * @param  string $name 缓存变量名
+     * @return boolean
      */
-    public function getDb()
+    public function rm($name)
     {
-        return $this->db;
+        $this->writeTimes++;
+
+        return $this->handler->delete($this->getCacheKey($name));
     }
 
     /**
-     * @param mixed $db
+     * 清除缓存
+     * @access public
+     * @param  string $tag 标签名
+     * @return boolean
      */
-    public function setDb($db): void
+    public function clear($tag = null)
     {
-        $this->db = $db;
-    }
+        if ($tag) {
+            // 指定标签清除
+            $keys = $this->getTagItem($tag);
 
-    /**
-     * @return mixed
-     */
-    public function getTimeout()
-    {
-        return $this->timeout;
-    }
+            foreach ($keys as $key) {
+                $this->handler->delete($key);
+            }
 
-    /**
-     * @param mixed $timeout
-     */
-    public function setTimeout($timeout): void
-    {
-        $this->timeout = $timeout;
-    }
+            $this->rm('tag_' . md5($tag));
+            return true;
+        }
 
-    /**
-     * @return mixed
-     */
-    public function getPassword()
-    {
-        return $this->password;
-    }
+        $this->writeTimes++;
 
-    /**
-     * @param mixed $password
-     */
-    public function setPassword($password): void
-    {
-        $this->password = $password;
-    }
-
-    public function get(string $key)
-    {
-        // TODO: Implement get() method.
-    }
-
-    public function set(string $key, $val, int $expire)
-    {
-        // TODO: Implement set() method.
-    }
-
-    public function rm(string $key)
-    {
-        // TODO: Implement rm() method.
+        return $this->handler->flushDB();
     }
 
 }

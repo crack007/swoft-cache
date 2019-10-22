@@ -6,7 +6,6 @@ use Swoft\SwoftComponent;
 
 class AutoLoader extends SwoftComponent
 {
-
     public function getPrefixDirs(): array
     {
         return [
