@@ -21,8 +21,6 @@ class AutoLoader extends SwoftComponent
 
     public function beans(): array
     {
-        return [
-            'cache' => '',
-        ];
+        return [];
     }
 }
