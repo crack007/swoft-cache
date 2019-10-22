@@ -12,7 +12,7 @@ Swoft Config Component
 - composer command
 
 ```bash
-composer require swoft/config
+composer require crack9527/swoft-cache
 ```
 
 ## Resources
