@@ -4,6 +4,8 @@
 namespace Crack9527\Cache\Component;
 
 
+use Swoft\Co;
+
 class FileCache extends AbstractCache
 {
     protected $options = [
@@ -53,7 +55,8 @@ class FileCache extends AbstractCache
             return $default;
         }
 
-        $content = file_get_contents($filename);
+        $content = Co::readFile($filename);
+
         $this->expire = null;
 
         if (false !== $content) {
@@ -84,6 +87,7 @@ class FileCache extends AbstractCache
      * @param  mixed $value 存储数据
      * @param  int|\DateTime $expire 有效时间 0为永久
      * @return boolean
+     * @example
      */
     public function set($name, $value, $expire = null)
     {
@@ -108,7 +112,7 @@ class FileCache extends AbstractCache
         }
 
         $data = "<?php\n//" . sprintf('%012d', $expire) . "\n exit();?>\n" . $data;
-        $result = file_put_contents($filename, $data);
+        $result = Co::writeFile($filename, $data);
 
         if ($result) {
             isset($first) && $this->setTagItem($filename);
