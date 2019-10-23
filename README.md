@@ -26,17 +26,6 @@ composer require crack9527/swoft-cache
 ```
 'cache' => [
     'class' => \Crack9527\Cache\Component\RedisCache::class,
-    'options' => [
-            'host' => 'redis', // ip
-            'port' => 6379, // 端口
-            'password' => '123456', // 密码
-            'select' => 0,
-            'timeout' => 0,
-            'expire' => 0,
-            'persistent' => false,
-            'prefix' => '',
-            'serialize' => true,
-        ]
 ]
 
 ```
@@ -44,6 +33,48 @@ composer require crack9527/swoft-cache
 
 ```
 cache()->get($key);
+```
+或者通过注解注入对象属性里
+
+``` php
+<?php declare(strict_types=1);
+
+namespace App\Http\Controller;
+
+use Crack9527\Cache\Contract\CacheInterface;
+use Swoft;
+use Swoft\Bean\Annotation\Mapping\Inject;
+use Swoft\Http\Message\ContentType;
+use Swoft\Http\Message\Response;
+use Swoft\Http\Server\Annotation\Mapping\Controller;
+use Swoft\Http\Server\Annotation\Mapping\RequestMapping;
+use Swoft\View\Renderer;
+use Throwable;
+use Swoft\Redis\Redis;
+
+/**
+ * Class HomeController
+ * @Controller()
+ */
+class HomeController
+{
+    /**
+     * @Inject("cache")
+     * @var CacheInterface
+     */
+    private $cache;
+
+    public function test()
+    {
+        $rand = uniqid();
+        $key = "test";
+        $this->cache->set($key, $rand, 3600 * 30);
+        assert($rand === $this->cache->get($key));
+
+    }
+}
+
+    
 ```
 
 # 缓存方法如下
